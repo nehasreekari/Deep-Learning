@@ -1,0 +1,74 @@
+# ==========================================
+# VISIONPORT PROJECT
+# YOLOv8 OBJECT DETECTION SYSTEM
+# ==========================================
+
+# Install YOLO
+!pip -q install ultralytics
+
+# Imports
+from ultralytics import YOLO
+from google.colab import files
+from PIL import Image
+import matplotlib.pyplot as plt
+import cv2
+import numpy as np
+
+# Load YOLO Model
+model = YOLO("yolov8n.pt")
+
+print("✅ YOLO Model Loaded Successfully")
+
+# Upload Image
+print("\n📤 Upload an image")
+uploaded = files.upload()
+
+image_path = next(iter(uploaded))
+
+# Run Detection
+results = model.predict(
+    source=image_path,
+    conf=0.4,
+    save=False
+)
+
+# Get Result Image
+annotated_frame = results[0].plot()
+
+# Convert BGR → RGB
+annotated_frame = cv2.cvtColor(
+    annotated_frame,
+    cv2.COLOR_BGR2RGB
+)
+
+# Display Result
+plt.figure(figsize=(12,8))
+plt.imshow(annotated_frame)
+plt.axis("off")
+plt.title("YOLO Object Detection Results")
+plt.show()
+
+# Print Detected Objects
+
+print("\n===== DETECTED OBJECTS =====\n")
+
+person_count = 0
+
+for box in results[0].boxes:
+
+    class_id = int(box.cls[0])
+
+    confidence = float(box.conf[0])
+
+    object_name = model.names[class_id]
+
+    print(
+        f"{object_name} --> {confidence:.2f}"
+    )
+
+    if object_name == "person":
+        person_count += 1
+
+print("\n============================")
+print(f"Total Persons Detected: {person_count}")
+print("============================")
