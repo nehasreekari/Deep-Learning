@@ -1,169 +1,43 @@
-# Inference Request Trace — visual demo for Google Colab
+!pip -q install transformers
 
+import torch
 import matplotlib.pyplot as plt
-from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
+from google.colab import files
+from PIL import Image
+from transformers import pipeline
 
-# -----------------------------
-# Demo data (illustrative only)
-# -----------------------------
-stages = [
-    {"name": "API INPUT", "time": 3, "color": "#3B82F6",
-     "detail": "POST /v1/predict\nText received"},
-    {"name": "VALIDATION", "time": 2, "color": "#06B6D4",
-     "detail": "Schema valid\nRequired fields present"},
-    {"name": "PREPROCESSING", "time": 7, "color": "#8B5CF6",
-     "detail": "Normalize text\nRemove extra whitespace"},
-    {"name": "FEATURES", "time": 5, "color": "#EC4899",
-     "detail": "Convert text\ninto model features"},
-    {"name": "MODEL", "time": 21, "color": "#F59E0B",
-     "detail": "Sentiment classifier\npositive · 94%"},
-    {"name": "RESPONSE", "time": 4, "color": "#10B981",
-     "detail": "HTTP 200 OK\nJSON returned"},
-]
+# Upload an image from your device
+uploaded = files.upload()
+image_path = next(iter(uploaded))
 
-sample_input = '"This phone is amazing!"'
-request_id = "req_8f31a2"
-total_ms = sum(s["time"] for s in stages)
-
-# -----------------------------
-# Canvas
-# -----------------------------
-fig = plt.figure(figsize=(18, 10), facecolor="#0B1020")
-ax = fig.add_axes([0, 0, 1, 1])
-ax.set_xlim(0, 18)
-ax.set_ylim(0, 10)
-ax.axis("off")
-
-# Header
-ax.text(0.7, 9.35, "INFERENCE REQUEST TRACE",
-        color="white", fontsize=24, fontweight="bold", va="center")
-ax.text(0.7, 8.85,
-        "A request’s journey from API input to model response",
-        color="#94A3B8", fontsize=12, va="center")
-
-# Demo badge
-badge = FancyBboxPatch((14.4, 9.05), 2.8, 0.5,
-                       boxstyle="round,pad=0.12,rounding_size=0.15",
-                       linewidth=0, facecolor="#3B2F14")
-ax.add_patch(badge)
-ax.text(15.8, 9.30, "ILLUSTRATIVE DEMO",
-        color="#FBBF24", fontsize=10, fontweight="bold",
-        ha="center", va="center")
-
-# Request summary card
-summary = FancyBboxPatch((0.7, 7.45), 16.5, 0.95,
-                         boxstyle="round,pad=0.15,rounding_size=0.18",
-                         linewidth=1, edgecolor="#263248",
-                         facecolor="#111A2E")
-ax.add_patch(summary)
-ax.text(1.0, 8.05, "REQUEST", color="#64748B",
-        fontsize=9, fontweight="bold")
-ax.text(1.0, 7.72, request_id, color="#E2E8F0",
-        fontsize=12, fontweight="bold")
-ax.text(4.0, 8.05, "METHOD / ROUTE", color="#64748B",
-        fontsize=9, fontweight="bold")
-ax.text(4.0, 7.72, "POST  /v1/predict", color="#E2E8F0",
-        fontsize=12, fontweight="bold")
-ax.text(8.0, 8.05, "INPUT", color="#64748B",
-        fontsize=9, fontweight="bold")
-ax.text(8.0, 7.72, sample_input, color="#E2E8F0",
-        fontsize=12)
-ax.text(14.0, 8.05, "TOTAL LATENCY", color="#64748B",
-        fontsize=9, fontweight="bold")
-ax.text(14.0, 7.72, f"{total_ms} ms", color="#34D399",
-        fontsize=15, fontweight="bold")
-
-# Stage cards
-card_w = 2.35
-card_h = 2.05
-gap = 0.42
-start_x = 0.7
-card_y = 4.55
-centers = []
-
-for i, stage in enumerate(stages):
-    x = start_x + i * (card_w + gap)
-    center_x = x + card_w / 2
-    centers.append(center_x)
-
-    card = FancyBboxPatch(
-        (x, card_y), card_w, card_h,
-        boxstyle="round,pad=0.12,rounding_size=0.18",
-        linewidth=1.2, edgecolor=stage["color"],
-        facecolor="#111A2E"
-    )
-    ax.add_patch(card)
-
-    # Number and stage title
-    ax.text(x + 0.18, card_y + 1.72, f"{i+1:02d}",
-            color=stage["color"], fontsize=10, fontweight="bold")
-    ax.text(x + 0.18, card_y + 1.38, stage["name"],
-            color="white", fontsize=10, fontweight="bold")
-
-    # Details
-    ax.text(x + 0.18, card_y + 0.82, stage["detail"],
-            color="#CBD5E1", fontsize=9, linespacing=1.5,
-            va="center")
-
-    # Latency chip
-    chip = FancyBboxPatch(
-        (x + 0.16, card_y + 0.16), 0.9, 0.34,
-        boxstyle="round,pad=0.05,rounding_size=0.12",
-        linewidth=0, facecolor=stage["color"]
-    )
-    ax.add_patch(chip)
-    ax.text(x + 0.61, card_y + 0.33, f'{stage["time"]} ms',
-            color="white", fontsize=8, fontweight="bold",
-            ha="center", va="center")
-
-# Arrows between cards
-for i in range(len(centers) - 1):
-    arrow = FancyArrowPatch(
-        (centers[i] + card_w/2 + 0.02, card_y + card_h/2),
-        (centers[i+1] - card_w/2 - 0.02, card_y + card_h/2),
-        arrowstyle="-|>", mutation_scale=14,
-        linewidth=1.5, color="#64748B"
-    )
-    ax.add_patch(arrow)
-
-# Latency bar
-ax.text(0.8, 3.95, "LATENCY BREAKDOWN",
-        color="#94A3B8", fontsize=10, fontweight="bold")
-bar_x, bar_y, bar_w, bar_h = 0.8, 3.35, 16.2, 0.28
-current_x = bar_x
-for stage in stages:
-    segment_w = bar_w * stage["time"] / total_ms
-    rect = FancyBboxPatch(
-        (current_x, bar_y), segment_w, bar_h,
-        boxstyle="round,pad=0.02,rounding_size=0.06",
-        linewidth=0, facecolor=stage["color"]
-    )
-    ax.add_patch(rect)
-    current_x += segment_w
-
-# Legend
-legend_x = 0.8
-legend_y = 2.85
-for stage in stages:
-    ax.scatter([legend_x], [legend_y], s=45, color=stage["color"])
-    ax.text(legend_x + 0.18, legend_y, stage["name"],
-            color="#CBD5E1", fontsize=8, va="center")
-    legend_x += 2.65
-
-# Response card
-response = FancyBboxPatch(
-    (0.7, 0.75), 16.5, 1.45,
-    boxstyle="round,pad=0.15,rounding_size=0.18",
-    linewidth=1.3, edgecolor="#10B981", facecolor="#0E211F"
+# Load an image classification model
+classifier = pipeline(
+    "image-classification",
+    model="google/vit-base-patch16-224"
 )
-ax.add_patch(response)
-ax.text(1.0, 1.82, "FINAL API RESPONSE",
-        color="#34D399", fontsize=10, fontweight="bold")
-ax.text(1.0, 1.35,
-        '{ "sentiment": "positive",  "confidence": 0.94,  "status": 200 }',
-        color="#E2E8F0", fontsize=13, family="monospace")
-ax.text(14.7, 1.42, "SUCCESS",
-        color="#34D399", fontsize=12, fontweight="bold",
-        ha="center", va="center")
 
+image = Image.open(image_path).convert("RGB")
+predictions = classifier(image)
+
+# Display the image and its top predictions
+plt.figure(figsize=(12, 5))
+
+plt.subplot(1, 2, 1)
+plt.imshow(image)
+plt.axis("off")
+plt.title("Uploaded image")
+
+plt.subplot(1, 2, 2)
+labels = [item["label"] for item in predictions[:5]][::-1]
+scores = [item["score"] * 100 for item in predictions[:5]][::-1]
+
+plt.barh(labels, scores, color="#4F46E5")
+plt.xlim(0, 100)
+plt.xlabel("Confidence (%)")
+plt.title("What the model detected")
+
+for i, score in enumerate(scores):
+    plt.text(score + 1, i, f"{score:.1f}%", va="center")
+
+plt.tight_layout()
 plt.show()
