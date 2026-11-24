@@ -1,0 +1,183 @@
+# MODEL ARTIFACT LIFECYCLE
+# Architecture -> Checkpoint -> ONNX -> TensorRT -> Inference
+
+!pip -q install onnx onnxscript onnxruntime
+
+import os
+import shutil
+import subprocess
+
+import numpy as np
+import onnx
+import onnxruntime as ort
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torchvision
+import torchvision.transforms as transforms
+
+# 1. Check device
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("Using device:", device)
+
+# 2. Create model architecture
+class CNN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv = nn.Conv2d(1, 16, kernel_size=3)
+        self.relu = nn.ReLU()
+        self.pool = nn.MaxPool2d(2)
+        self.fc = nn.Linear(16 * 13 * 13, 10)
+
+    def forward(self, x):
+        x = self.pool(self.relu(self.conv(x)))
+        x = x.view(x.size(0), -1)
+        return self.fc(x)
+
+model = CNN().to(device)
+print("\nModel architecture created:")
+print(model)
+
+# 3. Load MNIST training data
+transform = transforms.ToTensor()
+
+train_data = torchvision.datasets.MNIST(
+    root="/content/data",
+    train=True,
+    download=True,
+    transform=transform,
+)
+
+# Use a small subset to keep the demo quicker
+train_data = torch.utils.data.Subset(train_data, range(5000))
+
+train_loader = torch.utils.data.DataLoader(
+    train_data,
+    batch_size=64,
+    shuffle=True,
+)
+
+print(f"\nDataset loaded: {len(train_data)} training images")
+
+# 4. Train the model
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+for epoch in range(2):
+    model.train()
+    total_loss = 0
+
+    for images, labels in train_loader:
+        images, labels = images.to(device), labels.to(device)
+
+        optimizer.zero_grad()
+        outputs = model(images)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+
+        total_loss += loss.item()
+
+    print(f"Epoch {epoch + 1}/2 — loss: {total_loss / len(train_loader):.4f}")
+
+print("\nModel training completed!")
+
+# 5. Save and reload the trained checkpoint
+torch.save(model.state_dict(), "/content/model.pth")
+print("Checkpoint saved: model.pth")
+
+loaded_model = CNN().to(device)
+loaded_model.load_state_dict(
+    torch.load("/content/model.pth", map_location=device)
+)
+loaded_model.eval()
+print("Checkpoint loaded successfully!")
+
+# 6. Export the model to ONNX
+export_model = CNN()
+export_model.load_state_dict(
+    torch.load("/content/model.pth", map_location="cpu")
+)
+export_model.eval()
+
+dummy_input = torch.randn(1, 1, 28, 28)
+
+torch.onnx.export(
+    export_model,
+    dummy_input,
+    "/content/model.onnx",
+    input_names=["input"],
+    output_names=["output"],
+    dynamic_axes={
+        "input": {0: "batch_size"},
+        "output": {0: "batch_size"},
+    },
+    opset_version=17,
+    dynamo=False,
+)
+print("ONNX model exported successfully!")
+
+# 7. Validate the ONNX graph
+onnx_model = onnx.load("/content/model.onnx")
+onnx.checker.check_model(onnx_model)
+
+print("ONNX graph validated successfully!")
+print("ONNX graph nodes:", len(onnx_model.graph.node))
+
+# 8. Run ONNX Runtime inference on a real MNIST test image
+test_data = torchvision.datasets.MNIST(
+    root="/content/data",
+    train=False,
+    download=True,
+    transform=transform,
+)
+
+test_image, actual_label = test_data[0]
+sample = test_image.unsqueeze(0).numpy().astype(np.float32)
+
+session = ort.InferenceSession(
+    "/content/model.onnx",
+    providers=["CPUExecutionProvider"],
+)
+result = session.run(None, {"input": sample})
+predicted_label = int(np.argmax(result[0], axis=1)[0])
+
+print("\nONNX Runtime inference completed!")
+print("Actual digit:", actual_label)
+print("Predicted digit:", predicted_label)
+
+# 9. Try to create a TensorRT engine, if this runtime supports it
+trtexec = shutil.which("trtexec")
+
+if trtexec and torch.cuda.is_available():
+    completed = subprocess.run(
+        [
+            trtexec,
+            "--onnx=/content/model.onnx",
+            "--saveEngine=/content/model.engine",
+            "--fp16",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    if completed.returncode == 0 and os.path.exists("/content/model.engine"):
+        print("\nTensorRT engine created successfully!")
+    else:
+        print("\nTensorRT was found, but engine creation failed.")
+        print((completed.stderr or completed.stdout)[-1500:])
+else:
+    print("\nTensorRT engine skipped: TensorRT and a compatible GPU are required.")
+
+# 10. Show the lifecycle results directly in Colab
+print("\n========== MODEL ARTIFACT RESULTS ==========")
+
+for filename in ["model.pth", "model.onnx", "model.engine"]:
+    filepath = f"/content/{filename}"
+    if os.path.exists(filepath):
+        size_kb = os.path.getsize(filepath) / 1024
+        print(f"{filename}: created ({size_kb:.1f} KB)")
+    else:
+        print(f"{filename}: not created")
+
+print("\nMODEL ARTIFACT LIFECYCLE COMPLETED!")
